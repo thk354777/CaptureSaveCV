@@ -42,7 +42,7 @@ class VideoCaptureThread(QThread):
 
     def detect_objects(self, frame):
         # Perform object detection using your YOLO model here
-        results = self.model.predict(frame, conf=0.6, show=False)
+        results = self.model.predict(frame, conf=0.6, show=True)
 
         obj_lists = self.model.names  # Model Classes {0: 'cookie', 1: 'croissant', 2: 'donut'}
 
