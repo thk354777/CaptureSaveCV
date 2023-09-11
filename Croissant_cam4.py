@@ -1,6 +1,5 @@
 import cv2
 import sys
-import os
 from PySide6.QtCore import Qt, QThread, Signal, Slot
 from PySide6.QtGui import QImage, QPixmap
 from PySide6.QtWidgets import (
@@ -13,6 +12,9 @@ from PySide6.QtWidgets import (
     QFileDialog,
 )
 
+from ultralytics import YOLO
+import numpy as np
+
 class VideoCaptureThread(QThread):
     new_frame = Signal(QImage)
 
@@ -20,6 +22,7 @@ class VideoCaptureThread(QThread):
         super().__init__()
         self.capture = cv2.VideoCapture(0)
         self.running = True
+        self.model = YOLO('best_2.pt')  # Initialize your YOLO model here
 
     def run(self):
         while self.running:
@@ -27,12 +30,50 @@ class VideoCaptureThread(QThread):
             if not ret:
                 continue
 
+            # Perform object detection on the frame
+            frame_with_objects = self.detect_objects(frame)
+
             # Convert OpenCV BGR image to QImage
-            height, width, channel = frame.shape
+            height, width, channel = frame_with_objects.shape
             bytes_per_line = 3 * width
-            q_image = QImage(frame.data, width, height, bytes_per_line, QImage.Format_RGB888).rgbSwapped()
-            
+            q_image = QImage(frame_with_objects.data, width, height, bytes_per_line, QImage.Format_RGB888).rgbSwapped()
+
             self.new_frame.emit(q_image)
+
+    def detect_objects(self, frame):
+        # Perform object detection using your YOLO model here
+        results = self.model.predict(frame, conf=0.6, show=False)
+
+        obj_lists = self.model.names  # Model Classes {0: 'cookie', 1: 'croissant', 2: 'donut'}
+
+        objs = results[0].boxes.numpy()  # Arrays of Predicted result
+        obj_count = {value: key for key, value in obj_lists.items()}
+        obj_lists_count = dict.fromkeys({value: key for key, value in obj_lists.items()}, 0)
+
+        if objs.shape[0] != 0:  # Check if object > 0 piece.
+            for obj in objs:
+                detected_obj = obj_lists[int(obj.cls[0])]  # Change Object index to name.
+                obj_lists_count[detected_obj] += 1
+
+        # Draw bounding boxes and labels on the frame
+        frame_with_objects = frame.copy()
+        font = cv2.FONT_HERSHEY_SIMPLEX
+        fontScale = 0.5
+        color = (255, 255, 0)
+        thickness = 2
+        coor_x = coor_y = 50
+
+        for bread, value in obj_lists_count.items():
+            if value > 1:
+                text = f'{value} {bread}s'
+            else:
+                text = f'{value} {bread}'
+
+            coordinates = (coor_x, coor_y)
+            frame_with_objects = cv2.putText(frame_with_objects, text, coordinates, font, fontScale, color, thickness, cv2.LINE_AA)
+            coor_y += 50
+
+        return frame_with_objects
 
     def stop(self):
         self.running = False
@@ -82,9 +123,6 @@ class MainWindow(QMainWindow):
     def capture_image(self):
         if self.latest_frame is not None:
             self.captured_frame = self.latest_frame
-            # Display the captured image
-            pixmap = QPixmap.fromImage(self.captured_frame).scaled(320, 240, Qt.KeepAspectRatio)
-            self.captured_label.setPixmap(pixmap)
 
     @Slot()
     def save_image(self):
@@ -102,7 +140,6 @@ class MainWindow(QMainWindow):
         self.video_thread.stop()
         self.video_thread.capture.release()
         super().closeEvent(event)
-
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)
