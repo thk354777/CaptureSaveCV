@@ -123,6 +123,8 @@ class MainWindow(QMainWindow):
     def capture_image(self):
         if self.latest_frame is not None:
             self.captured_frame = self.latest_frame
+            pixmap = QPixmap.fromImage(self.captured_frame).scaled(320, 240, Qt.KeepAspectRatio)
+            self.captured_label.setPixmap(pixmap)
 
     @Slot()
     def save_image(self):
