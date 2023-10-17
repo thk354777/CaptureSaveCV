@@ -14,6 +14,7 @@ from PySide6.QtWidgets import (
 
 from ultralytics import YOLO
 import numpy as np
+from PIL import Image
 
 class VideoCaptureThread(QThread):
     new_frame = Signal(QImage)
@@ -37,13 +38,13 @@ class VideoCaptureThread(QThread):
             height, width, channel = frame_with_objects[0].shape
             bytes_per_line = 3 * width
             q_image = QImage(frame_with_objects[0].data, width, height, bytes_per_line, QImage.Format_RGB888).rgbSwapped()
-
+            
             self.new_frame.emit(q_image)
 
     def detect_objects(self, frame):
+        
         # Perform object detection using your YOLO model here
         results = self.model.predict(frame, conf=0.6, show=False)
-
         obj_lists = self.model.names  # Model Classes {0: 'cookie', 1: 'croissant', 2: 'donut'}
 
         objs = results[0].boxes.numpy()  # Arrays of Predicted result
@@ -51,41 +52,7 @@ class VideoCaptureThread(QThread):
         obj_lists_count = dict.fromkeys({value: key for key, value in obj_lists.items()}, 0)
 
         if objs.shape[0] != 0:  # Check if object > 0 piece.
-            for obj in objs:
-                detected_obj = obj_lists[int(obj.cls[0])]  # Change Object index to name.
-                obj_lists_count[detected_obj] += 1
 
-        # Draw bounding boxes and labels on the frame
-        frame_with_objects = frame.copy()
-        font = cv2.FONT_HERSHEY_SIMPLEX
-        fontScale = 0.5
-        color = (255, 255, 0)
-        thickness = 2
-        coor_x = coor_y = 50
-
-        for bread, value in obj_lists_count.items():
-            if value > 1:
-                text = f'{value} {bread}s'
-            else:
-                text = f'{value} {bread}'
-
-            coordinates = (coor_x, coor_y)
-            frame_with_objects = cv2.putText(frame_with_objects, text, coordinates, font, fontScale, color, thickness, cv2.LINE_AA)
-            coor_y += 50
-
-        return frame_with_objects, obj_lists_count
-    
-    def detect_objects(self, frame):
-        # Perform object detection using your YOLO model here
-        results = self.model.predict(frame, conf=0.6, show=False)
-
-        obj_lists = self.model.names  # Model Classes {0: 'cookie', 1: 'croissant', 2: 'donut'}
-
-        objs = results[0].boxes.numpy()  # Arrays of Predicted result
-        obj_count = {value: key for key, value in obj_lists.items()}
-        obj_lists_count = dict.fromkeys({value: key for key, value in obj_lists.items()}, 0)
-
-        if objs.shape[0] != 0:  # Check if object > 0 piece.
             for obj in objs:
                 detected_obj = obj_lists[int(obj.cls[0])]  # Change Object index to name.
                 obj_lists_count[detected_obj] += 1
@@ -166,9 +133,37 @@ class MainWindow(QMainWindow):
     def capture_image(self):
         if self.latest_frame is not None:
             self.captured_frame = self.latest_frame
+
+            # Convert QImage to QPixmap
+            pixmap = QPixmap(self.captured_frame)
+
+            # Convert QPixmap to QImage
+            image = pixmap.toImage()
+
+            # Assuming you have a QImage object named 'image'
+            width, height = image.width(), image.height()
+
+            # Convert QImage to PIL Image
+            pil_image = Image.fromqpixmap(image)  # Convert QImage to PIL Image
+
+            # Convert PIL Image to NumPy array
+            numpy_array = np.array(pil_image)
+
+            # If you need RGB format (ignoring alpha channel for transparency)
+            rgb_array = numpy_array[:, :, :3]  # Extract RGB channels, ignore the alpha channel
+            results = self.video_thread.detect_objects(rgb_array)
+            #print(results)
+            print(results[1])
+            with open("object_counts.txt", "w") as file:
+                file.write(str(results[1]) + "\n")
+
             pixmap = QPixmap.fromImage(self.captured_frame).scaled(32, 24, Qt.KeepAspectRatio)
             self.captured_label.setPixmap(pixmap)
-            print(self.video_thread.detect_objects(self.captured_frame)[1])
+            
+
+
+
+      
             
     @Slot()
     def save_image(self):
@@ -179,6 +174,7 @@ class MainWindow(QMainWindow):
             if file_path:
                 if self.captured_frame.save(file_path):
                     print(f"Image saved as {file_path}")
+                    
                 else:
                     print("Failed to save image.")
 
